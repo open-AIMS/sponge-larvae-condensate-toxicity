@@ -1,7 +1,7 @@
 # sponge-larvae-condensate-toxicity
 *R Code for Data Processing and Analysis for the manuscript 'Molecular responses of sponge larvae exposed to partially weathered condensate oil'*
 
-This repository contains scripts for processing gene expression and 16S rRNA amplicon data from sponge larvae that have been exposed to partially weathered condensate oil, as well as a script for deriving settlement and gene-specific no significant effect concentration (N(S)EC) threshold values. Scripts provided in this repository have been created using vignettes provided by the following R packages: DESeq2, phyloseq, Indispecies and bayesnec.
+This repository contains scripts for processing gene expression and 16S rRNA amplicon data from sponge larvae that have been exposed to partially weathered condensate oil, as well as a script for deriving settlement and gene-specific no significant effect concentration (N(S)EC) threshold values. Scripts provided in this repository have been created using vignettes from the following R packages: DESeq2, phyloseq, Indispecies and bayesnec.
 
 *This code is provided as supplementary information to the paper:* 
 
