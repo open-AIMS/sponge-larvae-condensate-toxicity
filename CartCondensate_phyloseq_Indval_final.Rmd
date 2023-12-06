@@ -1,0 +1,317 @@
+---
+title: "CartCondensatePhyloseq"
+author: "Heidi Luter"
+date: "25/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(phyloseq)
+library(tidyverse)
+library(viridis)
+library(gridExtra)
+library(data.table)
+library(DESeq2)
+library(indicspecies)
+library(permute)
+```
+
+## Importing data - using QIIME2 biom file - dada2 denoising
+https://apps.aims.gov.au/metadata/view/04c7257a-9941-4378-8fca-2d8dc05e6c67
+
+```{r import-data, echo=FALSE}
+biom <- import_biom('feature-table.dada2_new.biom')
+meta <- import_qiime_sample_data('CartCondensateMetadata.txt')
+physeq <- merge_phyloseq(biom, meta)
+colnames(tax_table(physeq))[1:7] <-  c("Kingdom", "Phylum", "Class", "Order",
+                                          "Family", "Genus", "Species")
+```
+
+## Get information about the Phyloseq object
+
+```{r data obs, echo=FALSE}
+head(sample_data(physeq))
+head(tax_table(physeq))
+head(otu_table(physeq))
+str(get_variable(physeq))
+```
+
+
+##Remove mitochondria and chloroplasts and any ASVs not obsured in any of the current samples  - if Kingdom d__Bacteria is included all Archaea get removed!
+
+Note the second bit of code is just a precaution
+
+```{r filtering-1, echo=FALSE}
+physeq2 <- physeq %>%
+  subset_taxa(
+    #Kingdom == "d__Bacteria" &
+    Family  != "f__Mitochondria" &
+    Order   != "o__Chloroplast"
+  )
+
+sum(taxa_sums(physeq2) == 0)
+physeq3 <- physeq2
+physeq3 <- prune_taxa(taxa_sums(physeq2) > 2, physeq2) #remove sigletons and doubltons
+
+
+```
+
+## Sample stats - includes Neg control and SW samples
+```{r stats-1, echo=FALSE}
+sum(sample_sums(physeq3)) # 583565 total reads
+summary(sample_sums(physeq3)) # min = 51, max = 33678, mean = 15357 reads
+physeq3 # 368 ASVs for 38 samples
+
+```
+
+## Removing ASVs in Neg control sample & turning into data into relative abundance
+
+```{r filtering-2, echo=FALSE}
+
+physeq3.neg <- subset_samples(physeq3, treatment %in% c("NEG"))
+sum(taxa_sums(physeq3.neg) == 0) #361-354 = 7
+physeq3.neg1 <- physeq3.neg
+physeq3.neg <- prune_taxa(taxa_sums(physeq3.neg1) >0, physeq3.neg)
+relabun <- physeq3 %>%
+  transform_sample_counts(function (x) {(x/sum(x))})
+relabun_Neg <- subset_taxa(relabun, rownames(tax_table(relabun)) %in%    rownames(tax_table(physeq3.neg)))
+#output <- otu_table(relabun_Neg)
+#output2 <- tax_table(relabun_Neg)
+#write.table(output, file = "Abundance_Blanks_F.csv", sep = ",") #7 contaminant ASVs missing from all actual samples so can be removed by getting rid of NEG and removing any samples with 0's
+#write.table(output2, file = "Abundance_Blanks_Taxa_F.csv", sep = ",") 
+relabun_noNeg <- subset_samples(relabun, sample.id != "SD4360_NEG") 
+sum(taxa_sums(relabun_noNeg) == 0)
+relabun_noNeg <- prune_taxa(taxa_sums(relabun_noNeg) > 0, relabun_noNeg)
+```
+## PCoA
+
+```{r PCoA, echo=FALSE}
+
+PCoA <- ordinate(relabun_noNeg, "PCoA", distance  = "bray")
+p_ord <- plot_ordination(relabun_noNeg, PCoA, color="treatment") #SW sample outlier
+p_ord
+
+```
+
+## Barplot
+
+```{r taxa-plots, echo=FALSE}
+p_tax <- plot_bar(relabun_noNeg, fill = "Phylum")
+p_tax2 <- plot_bar(relabun_noNeg, fill = "Class")
+p_tax
+p_tax2
+```
+
+## Edit bar plot function so black lines are removed - can comment out after running once 
+
+use my_plot_bar in place of plot_bar
+
+```{r taxa-plots-2, echo=FALSE}
+
+my_plot_bar = function (physeq, x = "Sample", y = "Abundance", fill = NULL, title = NULL, 
+                       facet_grid = NULL) {
+  mdf = psmelt(physeq)
+  p = ggplot(mdf, aes_string(x = x, y = y, fill = fill))
+  p = p + geom_bar(stat = "identity", position = "stack")
+  p = p + theme(axis.text.x = element_text(angle = -90, hjust = 0))
+  if (!is.null(facet_grid)) {
+    p <- p + facet_grid(facet_grid)
+  }
+  if (!is.null(title)) {
+    p <- p + ggtitle(title)
+  }
+  return(p)
+}
+```
+
+## Barplot repeats - no custom colors
+
+```{r taxa-plots, echo=FALSE}
+p_tax <- my_plot_bar(relabun_noNeg, fill = "Phylum")
+p_tax2 <- my_plot_bar(relabun_noNeg, fill = "Class")
+p_tax
+p_tax2
+```
+
+## Show classes of Proteobacteria as Phylum within barplots
+
+```{r taxa-plots-3, echo=FALSE}
+relabun_noNeg_ProteoCasP = relabun_noNeg #create a new phyloseq object, so the old isn't disrupted
+plot.tax = as.data.frame(tax_table(relabun_noNeg))
+plot.tax = data.frame(lapply(plot.tax, as.character), stringsAsFactors = F)
+plot.tax$Phylum[plot.tax$Phylum=="p__Proteobacteria"] = plot.tax$Class[plot.tax$Phylum=="p__Proteobacteria"] 
+plot.tax[] = lapply(plot.tax, factor)
+plot.tax.table = tax_table(plot.tax)
+rownames(plot.tax.table) = rownames(tax_table(relabun_noNeg))
+colnames(plot.tax.table) = colnames(tax_table(relabun_noNeg))
+identical(plot.tax.table[1:361,3:7], tax_table(relabun_noNeg)[1:361,3:7]) #final check; should be true. Ensure the number of rows is adjusted to the dimensions of your tax table. 
+tax_table(relabun_noNeg_ProteoCasP) = plot.tax.table
+relabun_noNeg_ProteoCasP
+```
+
+## Repeat Barplot - custom colors, phyla + class Proteo
+
+```{r taxa-plots, echo=FALSE}
+p_taxPC <- my_plot_bar(relabun_noNeg_ProteoCasP, fill = "Phylum") +
+  scale_fill_manual(values = c("#d8e7ff","#e6beff","#8000ff","#f58231","#911eb4","#46f0f0","#f032e6","#d2f53c","#fabebe","#3cb44b","#ff0080",
+                               "#fffac8","#800000","#aaffc3","#0082c8","#ffd8b1","#808080","#008080","#ffffff","#808000","#000000","#200080",
+                               "#608000","#800060","#006080","#000080","#cd9900","#806000")) 
+p_taxPC
+
+```
+
+## Removing SW sample since it's a clear outlier in the dataset
+
+```{r filtering-3, echo=FALSE}
+relabun_noNegSW <- subset_samples(relabun_noNeg_ProteoCasP, sample.id != "SD4359_SW") 
+sum(taxa_sums(relabun_noNegSW) == 0)
+relabun_noNegSW <- prune_taxa(taxa_sums(relabun_noNegSW) > 0, relabun_noNegSW)
+
+```
+
+## PCoA - no SW
+
+Added new treatment column so the key order is correct - tried various other things that didnt work ***found a solution using data.table altering after the plot is printed, see line 137
+
+```{r PCoA-2, echo=FALSE}
+
+sample_data(relabun_noNegSW)$treatment2 <- c(rep("WAF_A_0", 6), rep("WAF_B_2", 6), rep("WAF_C_10", 6), rep("WAF_D_20", 6), rep("WAF_E_50", 6), rep("WAF_F_100", 6))
+
+PCoA2 <- ordinate(relabun_noNegSW, "PCoA", distance  = "bray")
+
+#plot.colors <- c("#99ccff", "#33ff66", "#9999cc", "#9933cc", "#993366", "#333333")
+#p_ord2 <- plot_ordination(relabun_noNegSW, PCoA2, color="treatment2") + scale_color_manual(values = plot.colors)
+p_ord2 <- plot_ordination(relabun_noNegSW, PCoA2, color="treatment2") +
+  scale_color_viridis(discrete = TRUE, option = "D") +
+  geom_point(size = 2)
+p_ord2 
+
+p_ordTest <-  plot_ordination(relabun_noNegSW, PCoA2, color="treatment") +
+  scale_color_viridis(discrete = TRUE, option = "D") +
+  geom_point(size = 2)
+p_ordTest 
+
+new <- data.table(p_ordTest$data)
+new$treatment <- ordered(new$treatment, levels = c("WAF_0", "WAF_2", "WAF_10", "WAF_20", "WAF_50", "WAF_100"))
+p_ordTest$data <- new
+print(p_ordTest)
+```
+# write out RelAbundance files for later
+
+```{r export, echo=FALSE}
+RelAbunASV <- otu_table(relabun_noNegSW) 
+write.csv(RelAbunASV, file="RelAbunNoNegSW.csv") 
+TaxRelAbunASV <- tax_table(relabun_noNegSW)
+write.csv(TaxRelAbunASV, file="TaxRelAbunNoNegSW.csv")
+
+```
+
+# New taxa bar plots - No SW
+
+```{r taxa-plots, echo=FALSE}
+p_taxPC.2 <- my_plot_bar(relabun_noNegSW, fill = "Phylum") +
+  scale_fill_manual(values = c("#d8e7ff","#e6beff","#8000ff","#f58231","#911eb4","#46f0f0","#f032e6","#d2f53c","#3cb44b","#fabebe","#ff0080",
+                               "#fffac8","#800000","#aaffc3","#0082c8","#ffd8b1")) 
+p_taxPC.2
+
+```
+
+
+## DESeq2 from phyloseq - raw reads, no NEG or SW
+
+```{r DESeq2, echo=FALSE}
+
+physeq6 <- subset_samples(physeq4, sample.id != "SD4359_SW") 
+diagdds = phyloseq_to_deseq2(physeq6, ~ treatment)
+diagdds = DESeq(diagdds, test="Wald", fitType="parametric")
+
+res = results(diagdds, cooksCutoff = FALSE)
+
+resOrdered<-res[order(res$padj),] # reorder the results to have the ASVs with the smallest pval listed first
+head(resOrdered)
+
+summary(res)
+
+res2 <- results(diagdds, contrast=c("treatment", "WAF_0","WAF_100"))
+res2Ordered <- res2[order(res$padj),]
+head(res2Ordered)
+
+res3 <- results(diagdds, contrast=c("treatment", "WAF_0","WAF_20"))
+res3Ordered <- res3[order(res$padj),]
+head(res3Ordered)
+
+```
+
+## Use DESeq2 to do variance stabilizing transformation to repeat PCoA for publication
+
+```{r DESeq2-vsd, echo=FALSE}
+
+vsd <- varianceStabilizingTransformation(diagdds)
+vstMat <- assay(vsd)
+
+otu_table(physeq6) <- otu_table(vstMat, taxa_are_rows = TRUE) #replaceold OTU table with vsd
+
+PCoA3 <- ordinate(physeq6, "PCoA", distance  = "bray")
+
+p_ord3 <- plot_ordination(physeq6, PCoA3, color="treatment2") +
+  #scale_color_viridis(discrete = TRUE, option = "D") +
+  scale_color_manual(values = c("#0000ff","#80ff00", "#ff00ff", "#40e0d0", "#ff8000", "#483c32")) +
+  geom_point(size = 3) +
+  theme_classic()
+p_ord3 
+
+```
+
+
+### Indicator species analysis - to be included ASVs need to be in >3 samples & >0.001 RelAbun (includes 79 ASVs)
+I applied these criteria in excel and imported, note AVS need to be in columns not rows
+
+```{r IndVal, echo=FALSE}
+matrix=read.csv("CartCondASV_RelAbunNoNegSW_4indval.csv", row.names=1)
+dim(matrix)
+matrix[1:3,1:3]
+metadata2 = as.character(metadata$treatment2)
+OTUTABLE = (as.data.frame(matrix))
+indval = multipatt(OTUTABLE, metadata2, control = how(nperm=999), duleg = TRUE, func = "IndVal")
+summary(indval, indvalcomp = TRUE)
+summary(indval, indvalcomp = TRUE, At = 0.6, Bt = 0.6, alpha = 0.05)
+
+```
+
+indval3 = 0 (control) vs low (WAF 2, 10) vs high (WAF 20, 50, 100)
+```{r Indval3, echo=FALSE}
+
+metadata$ind3Tr <- c(rep("WAF_control", 6), rep("WAF_low", 12), rep("WAF_high", 18))
+metadata2 = as.character(metadata$ind3Tr)
+OTUTABLE = (as.data.frame(matrix))
+indval3 = multipatt(OTUTABLE, metadata2, control = how(nperm=999), duleg = TRUE, func = "IndVal")
+summary(indval3, indvalcomp = TRUE)
+summary(indval3, indvalcomp = TRUE, At = 0.6, Bt = 0.6, alpha = 0.05)
+
+```
+
+Plot results
+
+```{r barplot indval3, echo=FALSE}
+
+options(scipen = 999)
+
+IndASV2 <- read_excel("indicators.xlsx", sheet = "4R.2") 
+
+IndASV2$Tr <- factor(IndASV2$Tr, levels = c("Control", "WAF_Low", "WAF_High"))
+
+
+IndBar <- ggplot(data = IndASV2, aes(x=as.factor(ASV), y=RelAbun, fill = Tr)) +
+  geom_bar(position=position_dodge(), stat="identity", colour='black') +
+  geom_errorbar(aes(ymin=RelAbun-SE, ymax=RelAbun+SE), width=.2,position=position_dodge(.9)) +
+  scale_fill_manual(values = c("#0000ff", "#80ff00", "#483c32")) +
+  scale_x_discrete(labels = c("c__Gammaproteobacteria; o__Cellvibrionales; f__Spongiibacteraceae; g__Spongiibacter", "c__Gammaproteobacteria; o__Vibrionales; f__Vibrionaceae; g__Vibrio", "c__Gammaproteobacteria; o__Alteromonadales; f__Marinobacteraceae; g__Marinobacter", "c__Alphaproteobacteria; o__Rhodobacterales; f__Rhodobacteraceae; g__Albidovulum", "c__Gammaproteobacteria; o__Oceanospirillales; f__Oleiphilaceae; g__Oleiphilus", "c__Gammaproteobacteria;	o__KI89A_clade", "c__Gammaproteobacteria;	o__Oceanospirillales; f__Pseudohongiellaceae	g__Pseudohongiella", "c__Rhodothermia; o__Rhodothermales; f__Rhodothermaceae")) +
+  labs(x="", y="Mean Relative Abundance ± S.E.") +
+  coord_flip() +
+  theme_classic()
+
+
+```
+
