@@ -9,7 +9,7 @@ Luter, H.M., Laffy, P., Flores, F. Brinkman, D.L., Fisher, R., Negri, A.P. Molec
 
 *Data used in this analysis can be found at:*
 
-Australian Institute of Marine Science (AIMS) (insert AIMS metadata DOI when available)
+Australian Institute of Marine Science (AIMS) (https://apps.aims.gov.au/metadata/view/04c7257a-9941-4378-8fca-2d8dc05e6c67)
 
 *Licensing*
 
