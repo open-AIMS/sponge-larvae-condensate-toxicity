@@ -5,7 +5,7 @@ This repository contains scripts for processing gene expression and 16S rRNA amp
 
 *This code is provided as supplementary information to the paper:* 
 
-Luter, H.M., Laffy, P., Flores, F. Brinkman, D.L., Fisher, R., Negri, A.P. Molecular responses of sponge larvae exposed to partially weathered condensate oil. Marine Pollution Bulletin. (add DOI when available)
+Luter, H.M., Laffy, P., Flores, F. Brinkman, D.L., Fisher, R., Negri, A.P. Molecular responses of sponge larvae exposed to partially weathered condensate oil. Marine Pollution Bulletin. (https://doi.org/10.1016/j.marpolbul.2023.115928)
 
 *Data used in this analysis can be found at:*
 
